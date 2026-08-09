@@ -4,27 +4,36 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m2
     environment:
-      groups:
-        - ios_signing
       vars:
         APP_NAME: "SnapSubscriptionFix"
     scripts:
       - name: Install Dependencies
         script: |
-          brew install make ldid
+          brew install ldid make wget
+
+      - name: Prepare Substrate Header
+        script: |
+          # تحميل ملف substrate.h من مصدر موثوق (ElleKit أو CydiaSubstrate)
+          # هذا الملف ضروري ليعرف الـ Compiler ما هو %hook و %orig
+          wget -O substrate.h https://raw.githubusercontent.com/ryanoasis/substrate/master/include/substrate.h
+          # التحقق من وجود الملف
+          ls -l substrate.h
 
       - name: Build the .dylib
         script: |
-          # 1. تجميع الملف كمكتبة ديناميكية (-shared)
-          # ملاحظة: استخدمت -dynamiclib وهو مكافئ لـ -shared في macOS/iOS
+          # تجميع الملف
+          # ملاحظات مهمة:
+          # 1. نستخدم -I. لتحديد المجلد الحالي حيث يوجد substrate.h و main.m
+          # 2. نستخدم -dynamiclib لإنشاء مكتبة ديناميكية
+          # 3. نستخدم -fobjc-arc لدعم Objective-C
+          # 4. نستخدم -O2 للتحسين
+          
           clang -arch arm64 -arch arm64e \
                 -fobjc-arc \
                 -O2 \
                 -fvisibility=hidden \
-                -I/System/Library/Frameworks/Foundation.framework/Headers \
-                -I/System/Library/Frameworks/UIKit.framework/Headers \
-                -I/opt/homebrew/Cellar/cydia-substrate/4.0.1/include \
-                -F/System/Library/Frameworks \
+                -I. \
+                -F/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk/System/Library/Frameworks \
                 -framework Foundation \
                 -framework UIKit \
                 main.m \
@@ -32,21 +41,26 @@ workflows:
                 -dynamiclib \
                 -install_name @executable_path/../Frameworks/libSnapSubscriptionFix.dylib
 
-          # 2. التحقق من نجاح التجميع قبل التوقيع
+          # التحقق من نجاح التجميع
           if [ ! -f libSnapSubscriptionFix.dylib ]; then
-            echo "Error: .dylib file not found!"
+            echo "❌ Error: libSnapSubscriptionFix.dylib not found!"
             exit 1
           fi
 
-          # 3. توقيع الملف بـ ldid
+          # توقيع الملف بـ ldid
+          echo "Signing the dylib..."
           ldid -S libSnapSubscriptionFix.dylib
+
+          # التحقق من التوقيع
+          ldid -S libSnapSubscriptionFix.dylib | grep "Linked SDK"
+          echo "✅ Build and Sign Successful!"
 
       - name: Archive Artifact
         script: |
           mkdir -p artifacts
           cp libSnapSubscriptionFix.dylib artifacts/
           
-          # إنشاء ملف Plist بسيط لـ Substrate (اختياري حسب طريقة الحقن)
+          # إنشاء ملف Plist لـ Substrate
           cat > artifacts/SnapSubscriptionFix.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
