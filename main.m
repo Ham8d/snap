@@ -1,29 +1,14 @@
 #include <substrate.h>
 #include <objc/runtime.h>
 #include <objc/message.h>
-#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-// تعريفات أساسية لتجنب اعتماد كامل على Foundation.h
-typedef struct objc_object {
-    Class isa;
-} *id;
-
-typedef struct objc_selector {
-    const char *name;
-} *SEL;
-
-typedef struct objc_class {
-    struct objc_class *isa;
-    struct objc_class *super_class;
-    void *cache;
-    void *vtable;
-} *Class;
-
-// تعريف دالة NSLog مخصصة لتجنب مشكلة "file not found" لـ Foundation
-void myNSLog(const char *format, ...) {
+// دالة طباعة بسيطة
+void snapLog(const char *fmt, ...) {
     va_list args;
-    va_start(args, format);
-    vprintf(format, args);
+    va_start(args, fmt);
+    vprintf(fmt, args);
     va_end(args);
     printf("\n");
 }
@@ -31,40 +16,39 @@ void myNSLog(const char *format, ...) {
 // دوال الـ Hook
 
 static BOOL isPremiumOverride(id self, SEL _cmd) {
-    myNSLog("[SnapFix] isPremiumActive -> YES");
+    snapLog("[SnapFix] isPremiumActive -> YES");
     return YES;
 }
 
-// ملاحظة: نوع الـ callback قد يختلف، نستخدم مؤشر دالة عام لتجنب تعقيدات النوع
+// نستخدم مؤشر دالة عام للـ completion لتجنب مشاكل الأنواع في Swift/ObjC
 static void requestSubscriptionOverride(id self, SEL _cmd, void *completion) {
-    myNSLog("[SnapFix] requestSubscriptionCodeWithCompletion -> Success");
+    snapLog("[SnapFix] requestSubscriptionCodeWithCompletion -> Success");
     if (completion) {
-        // استدعاء الكومبليشن بنجاح
-        // النوع الدقيق يعتمد على تعريف الدالة الأصلية في سناب
-        // هنا نفترض أن الأول BOOL والثاني NSString (id)
-        void (*callCompletion)(void*, BOOL, id) = (void (*)(void*, BOOL, id))completion;
-        callCompletion(completion, YES, nil);
+        // نفترض أن الدالة تستقبل (BOOL success, id error)
+        // نستخدم casting عام
+        void (*callBack)(void*, BOOL, id) = (void (*)(void*, BOOL, id))completion;
+        callBack(completion, YES, nil);
     }
 }
 
 static void validateCodeOverride(id self, SEL _cmd, id code, void *completion) {
-    myNSLog("[SnapFix] validateCode -> Valid");
+    snapLog("[SnapFix] validateCode -> Valid");
     if (completion) {
-        void (*callCompletion)(void*, BOOL) = (void (*)(void*, BOOL))completion;
-        callCompletion(completion, YES);
+        void (*callBack)(void*, BOOL) = (void (*)(void*, BOOL))completion;
+        callBack(completion, YES);
     }
 }
 
 static BOOL isSubscribedOverride(id self, SEL _cmd) {
-    myNSLog("[SnapFix] isSubscribed -> YES");
+    snapLog("[SnapFix] isSubscribed -> YES");
     return YES;
 }
 
 __attribute__((constructor))
 void initialize() {
-    myNSLog("[SnapFix] Library Loaded!");
+    snapLog("[SnapFix] Library Loaded!");
 
-    // محاولة Hook للكلاسات الشائعة في سناب
+    // 1. SUBSubscriptionManager
     Class subMgrClass = objc_getClass("SUBSubscriptionManager");
     if (subMgrClass) {
         Method m = class_getInstanceMethod(subMgrClass, @selector(isPremiumActive));
@@ -77,6 +61,7 @@ void initialize() {
         if (m) method_setImplementation(m, (IMP)validateCodeOverride);
     }
 
+    // 2. SUBAppController
     Class appCtrlClass = objc_getClass("SUBAppController");
     if (appCtrlClass) {
         Method m = class_getInstanceMethod(appCtrlClass, @selector(isSubscribed));
