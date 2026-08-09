@@ -5,42 +5,63 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       groups:
-        - ios_signing # مجموعة التوقيع (اختياري إذا استخدمت ldid)
+        - ios_signing
       vars:
         APP_NAME: "SnapSubscriptionFix"
     scripts:
       - name: Install Dependencies
         script: |
           brew install make ldid
-          # إذا كنت تستخدم Theos
-          # brew tap mkgor/ios && brew install theos
 
       - name: Build the .dylib
         script: |
-          # تجميع الملف باستخدام Clang مباشرة (أسرع وأبسط من Theos إذا كان ملفاً واحداً)
+          # 1. تجميع الملف كمكتبة ديناميكية (-shared)
+          # ملاحظة: استخدمت -dynamiclib وهو مكافئ لـ -shared في macOS/iOS
           clang -arch arm64 -arch arm64e \
                 -fobjc-arc \
                 -O2 \
-                -I/usr/include \
+                -fvisibility=hidden \
+                -I/System/Library/Frameworks/Foundation.framework/Headers \
+                -I/System/Library/Frameworks/UIKit.framework/Headers \
+                -I/opt/homebrew/Cellar/cydia-substrate/4.0.1/include \
                 -F/System/Library/Frameworks \
                 -framework Foundation \
                 -framework UIKit \
                 main.m \
                 -o libSnapSubscriptionFix.dylib \
-                -install_name @executable_path/../Frameworks/libSnapSubscriptionFix.dylib \
-                -current_version 1.0.0 \
-                -compatibility_version 1.0.0
+                -dynamiclib \
+                -install_name @executable_path/../Frameworks/libSnapSubscriptionFix.dylib
 
-          # توقيع الملف بـ ldid (مهم جداً لسناب حتى لا يخرج)
+          # 2. التحقق من نجاح التجميع قبل التوقيع
+          if [ ! -f libSnapSubscriptionFix.dylib ]; then
+            echo "Error: .dylib file not found!"
+            exit 1
+          fi
+
+          # 3. توقيع الملف بـ ldid
           ldid -S libSnapSubscriptionFix.dylib
 
       - name: Archive Artifact
         script: |
           mkdir -p artifacts
           cp libSnapSubscriptionFix.dylib artifacts/
-          # إذا كان لديك ملف .plist لـ Substrate
-          # echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Filter</key><dict><key>Bundles</key><array><string>com.toyopager.flashproject</string></array></dict></dict></plist>' > artifacts/SnapSubscriptionFix.plist
-          # cp SnapSubscriptionFix.plist artifacts/
+          
+          # إنشاء ملف Plist بسيط لـ Substrate (اختياري حسب طريقة الحقن)
+          cat > artifacts/SnapSubscriptionFix.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>Filter</key>
+              <dict>
+                  <key>Bundles</key>
+                  <array>
+                      <string>com.toyopager.flashproject</string>
+                  </array>
+              </dict>
+          </dict>
+          </plist>
+          EOF
 
     artifacts:
       - artifacts/*.dylib
