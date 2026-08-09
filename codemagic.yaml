@@ -1,0 +1,47 @@
+workflows:
+  build-snap-lib:
+    name: Build CydiaSubstrate Lib for Snap
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      groups:
+        - ios_signing # مجموعة التوقيع (اختياري إذا استخدمت ldid)
+      vars:
+        APP_NAME: "SnapSubscriptionFix"
+    scripts:
+      - name: Install Dependencies
+        script: |
+          brew install make ldid
+          # إذا كنت تستخدم Theos
+          # brew tap mkgor/ios && brew install theos
+
+      - name: Build the .dylib
+        script: |
+          # تجميع الملف باستخدام Clang مباشرة (أسرع وأبسط من Theos إذا كان ملفاً واحداً)
+          clang -arch arm64 -arch arm64e \
+                -fobjc-arc \
+                -O2 \
+                -I/usr/include \
+                -F/System/Library/Frameworks \
+                -framework Foundation \
+                -framework UIKit \
+                main.m \
+                -o libSnapSubscriptionFix.dylib \
+                -install_name @executable_path/../Frameworks/libSnapSubscriptionFix.dylib \
+                -current_version 1.0.0 \
+                -compatibility_version 1.0.0
+
+          # توقيع الملف بـ ldid (مهم جداً لسناب حتى لا يخرج)
+          ldid -S libSnapSubscriptionFix.dylib
+
+      - name: Archive Artifact
+        script: |
+          mkdir -p artifacts
+          cp libSnapSubscriptionFix.dylib artifacts/
+          # إذا كان لديك ملف .plist لـ Substrate
+          # echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Filter</key><dict><key>Bundles</key><array><string>com.toyopager.flashproject</string></array></dict></dict></plist>' > artifacts/SnapSubscriptionFix.plist
+          # cp SnapSubscriptionFix.plist artifacts/
+
+    artifacts:
+      - artifacts/*.dylib
+      - artifacts/*.plist
