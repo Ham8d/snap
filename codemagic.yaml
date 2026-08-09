@@ -18,8 +18,9 @@ workflows:
 
       - name: Build the .dylib
         script: |
-          # البناء بدون اعتماد على iOS SDK Headers الكاملة
-          # نستخدم -lobjc و -framework فقط إذا كانت موجودة، لكن الأسهل هو ربط مباشر
+          # البناء باستخدام Clang
+          # نستخدم -lobjc لربط مكتبة Objective-C الأساسية
+          # نستخدم -I. لتضمين المجلد الحالي (حيث يوجد substrate.h و main.m)
           
           clang -arch arm64 -arch arm64e \
                 -fobjc-arc \
@@ -27,20 +28,23 @@ workflows:
                 -fvisibility=hidden \
                 -I. \
                 -lobjc \
-                -lSystem \
                 main.m \
                 -o libSnapSubscriptionFix.dylib \
                 -dynamiclib \
                 -install_name @executable_path/../Frameworks/libSnapSubscriptionFix.dylib
 
+          # التحقق من نجاح التجميع
           if [ ! -f libSnapSubscriptionFix.dylib ]; then
             echo "❌ Error: libSnapSubscriptionFix.dylib not found!"
             exit 1
           fi
 
+          # توقيع الملف بـ ldid
           echo "Signing the dylib..."
           ldid -S libSnapSubscriptionFix.dylib
           
+          # التحقق من التوقيع
+          ldid -S libSnapSubscriptionFix.dylib | grep "Linked SDK"
           echo "✅ Build and Sign Successful!"
 
       - name: Archive Artifact
@@ -48,6 +52,7 @@ workflows:
           mkdir -p artifacts
           cp libSnapSubscriptionFix.dylib artifacts/
           
+          # إنشاء ملف Plist لـ Substrate
           cat > artifacts/SnapSubscriptionFix.plist << EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
