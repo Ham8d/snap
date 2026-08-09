@@ -3,8 +3,9 @@
 #include <objc/message.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <dispatch/dispatch.h>
 
-// دالة طباعة بسيطة
+// دالة للتصحيح (Debug)
 void snapLog(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -13,58 +14,127 @@ void snapLog(const char *fmt, ...) {
     printf("\n");
 }
 
-// دوال الـ Hook
-
-static BOOL isPremiumOverride(id self, SEL _cmd) {
-    snapLog("[SnapFix] isPremiumActive -> YES");
+// دالة بديلة ترجع نجاح دائماً (للدوال التي ترجع BOOL)
+static BOOL returnTrue(id self, SEL _cmd) {
+    snapLog("[SnapFix] Override BOOL: %s -> YES", sel_getName(_cmd));
     return YES;
 }
 
-// نستخدم مؤشر دالة عام للـ completion لتجنب مشاكل الأنواع في Swift/ObjC
-static void requestSubscriptionOverride(id self, SEL _cmd, void *completion) {
-    snapLog("[SnapFix] requestSubscriptionCodeWithCompletion -> Success");
-    if (completion) {
-        // نفترض أن الدالة تستقبل (BOOL success, id error)
-        // نستخدم casting عام
-        void (*callBack)(void*, BOOL, id) = (void (*)(void*, BOOL, id))completion;
-        callBack(completion, YES, nil);
-    }
+// دالة بديلة تلغي التنفيذ (للدوال التي لا ترجع شيئاً void)
+static void doNothing(id self, SEL _cmd) {
+    snapLog("[SnapFix] Override VOID: %s -> Done", sel_getName(_cmd));
 }
 
-static void validateCodeOverride(id self, SEL _cmd, id code, void *completion) {
-    snapLog("[SnapFix] validateCode -> Valid");
+// دالة بديلة للـ Callbacks (تعيد النجاح فوراً)
+static void completeSuccess(id self, SEL _cmd, void *completion) {
+    snapLog("[SnapFix] Callback Success: %s", sel_getName(_cmd));
     if (completion) {
+        // محاولة استدعاء الكومبليشن بنجاح
+        // نستخدم نوع عام لتجنب الأخطاء
         void (*callBack)(void*, BOOL) = (void (*)(void*, BOOL))completion;
         callBack(completion, YES);
     }
 }
 
-static BOOL isSubscribedOverride(id self, SEL _cmd) {
-    snapLog("[SnapFix] isSubscribed -> YES");
-    return YES;
-}
-
 __attribute__((constructor))
 void initialize() {
-    snapLog("[SnapFix] Library Loaded!");
+    snapLog("[SnapFix] ===== STARTING FINAL FIX =====");
 
-    // 1. SUBSubscriptionManager
-    Class subMgrClass = objc_getClass("SUBSubscriptionManager");
-    if (subMgrClass) {
-        Method m = class_getInstanceMethod(subMgrClass, @selector(isPremiumActive));
-        if (m) method_setImplementation(m, (IMP)isPremiumOverride);
-        
-        m = class_getInstanceMethod(subMgrClass, @selector(requestSubscriptionCodeWithCompletion:));
-        if (m) method_setImplementation(m, (IMP)requestSubscriptionOverride);
+    // قائمة بأسماء الدوال الشائعة في سناب للتحقق من الاشتراك
+    const char *checkMethods[] = {
+        "isPremiumActive",
+        "isSubscribed",
+        "isValid",
+        "hasActiveSubscription",
+        "isPremium",
+        "checkSubscriptionStatus",
+        "validateSubscription",
+        "verifyCode",
+        "isValidCode"
+    };
+    int numCheckMethods = sizeof(checkMethods) / sizeof(checkMethods[0]);
 
-        m = class_getInstanceMethod(subMgrClass, @selector(validateCode:completion:));
-        if (m) method_setImplementation(m, (IMP)validateCodeOverride);
+    // قائمة بأسماء الدوال التي تعرض شاشة الطلب أو التنبيه
+    const char *showMethods[] = {
+        "showSubscriptionSheet",
+        "presentSubscriptionView",
+        "showPremiumAlert",
+        "displaySubscriptionModal",
+        "showPaywall",
+        "presentPaywall",
+        "showSubscriptionViewController",
+        "showSubscriptionViewControllerAnimated:",
+        "showSubscriptionViewController:animated:"
+    };
+    int numShowMethods = sizeof(showMethods) / sizeof(showMethods[0]);
+
+    // قائمة بأسماء الكلاسات الشائعة في سناب
+    const char *classNames[] = {
+        "SUBSubscriptionManager",
+        "SCSubscriptionManager",
+        "SUBAppController",
+        "SCAppController",
+        "SUBPremiumManager",
+        "SCPremiumManager",
+        "SUBSubscriptionViewController",
+        "SCSubscriptionViewController",
+        "SUBPaywallManager",
+        "SCPaywallManager",
+        "AppDelegate"
+    };
+    int numClasses = sizeof(classNames) / sizeof(classNames[0]);
+
+    for (int i = 0; i < numClasses; i++) {
+        Class cls = objc_getClass(classNames[i]);
+        if (cls) {
+            snapLog("[SnapFix] Found Class: %s", classNames[i]);
+
+            // 1. Hook للدوال التي ترجع BOOL (مثل isPremiumActive) -> نجعلها ترجع YES
+            for (int j = 0; j < numCheckMethods; j++) {
+                SEL sel = sel_registerName(checkMethods[j]);
+                Method m = class_getInstanceMethod(cls, sel);
+                if (m) {
+                    const char *typeEncoding = method_getTypeEncoding(m);
+                    if (typeEncoding[0] == 'B') { // إذا كانت ترجع BOOL
+                        snapLog("[SnapFix] Hooked BOOL Method: %s.%s", classNames[i], checkMethods[j]);
+                        method_setImplementation(m, (IMP)returnTrue);
+                    }
+                }
+            }
+
+            // 2. Hook للدوال التي تعرض الشاشة (مثل showSubscriptionSheet) -> نجعلها تفعل شيئاً أو تلغى
+            for (int j = 0; j < numShowMethods; j++) {
+                SEL sel = sel_registerName(showMethods[j]);
+                Method m = class_getInstanceMethod(cls, sel);
+                if (m) {
+                    snapLog("[SnapFix] Hooked SHOW Method: %s.%s", classNames[i], showMethods[j]);
+                    // نختار بين إلغاء الدالة تماماً أو استدعاء دالة فارغة
+                    method_setImplementation(m, (IMP)doNothing);
+                }
+            }
+
+            // 3. Hook للدوال التي تحتوي على كلمة "Validate" أو "Verify" مع Completion -> نجعلها تنجح
+            // نبحث في جميع دوال الكلاس
+            unsigned int methodCount;
+            Method *methods = class_copyMethodList(cls, &methodCount);
+            for (unsigned int k = 0; k < methodCount; k++) {
+                Method m = methods[k];
+                SEL sel = method_getName(m);
+                const char *methodName = sel_getName(sel);
+                
+                // إذا كانت الدالة تبدأ بحروف مثل v (void) وتحتوي على كلمة Validate أو Verify
+                const char *typeEncoding = method_getTypeEncoding(m);
+                if (typeEncoding[0] == 'v') {
+                    if ((strstr(methodName, "Validate") || strstr(methodName, "Verify") || strstr(methodName, "CheckCode")) && 
+                        strstr(methodName, "Completion") || strstr(methodName, "Handler")) {
+                        snapLog("[SnapFix] Hooked Callback Method: %s.%s", classNames[i], methodName);
+                        method_setImplementation(m, (IMP)completeSuccess);
+                    }
+                }
+            }
+            free(methods);
+        }
     }
 
-    // 2. SUBAppController
-    Class appCtrlClass = objc_getClass("SUBAppController");
-    if (appCtrlClass) {
-        Method m = class_getInstanceMethod(appCtrlClass, @selector(isSubscribed));
-        if (m) method_setImplementation(m, (IMP)isSubscribedOverride);
-    }
+    snapLog("[SnapFix] ===== FINISHED HOOKING =====");
 }
