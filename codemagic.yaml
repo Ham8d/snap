@@ -18,9 +18,10 @@ workflows:
 
       - name: Build the .dylib
         script: |
-          # البناء باستخدام Clang
-          # نستخدم -lobjc لربط مكتبة Objective-C الأساسية
-          # نستخدم -I. لتضمين المجلد الحالي (حيث يوجد substrate.h و main.m)
+          # البناء الصحيح
+          # نستخدم -lobjc لربط مكتبة Objective-C
+          # نستخدم -I. لتضمين المجلد الحالي
+          # لا نحتاج إلى -isysroot إذا كنا نستخدم المكتبات النظامية الموجودة في الماك
           
           clang -arch arm64 -arch arm64e \
                 -fobjc-arc \
@@ -28,6 +29,7 @@ workflows:
                 -fvisibility=hidden \
                 -I. \
                 -lobjc \
+                -lSystem \
                 main.m \
                 -o libSnapSubscriptionFix.dylib \
                 -dynamiclib \
