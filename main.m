@@ -1,49 +1,47 @@
-#import <substrate.h>
+#import "substrate.h"
 #import <Foundation/Foundation.h>
+#import <UIKit/UIKit.h>
 
-// سنحتاج لتحديد اسم الكلاس والدالة في سناب.
-// عادةً دوال التحقق تكون في كلاسات مثل:
-// - SUBAppController
-// - SUBSubscriptionManager
-// - أو دوال تتصل بـ "validate_token" أو "check_subscription"
+// تعريف كلاس افتراضي لسناب (قد يختلف حسب النسخة)
+@interface SUBSubscriptionManager : NSObject
+- (BOOL)isPremiumActive;
+- (void)requestSubscriptionCodeWithCompletion:(void(^)(BOOL success, NSString *error))completion;
+- (void)validateCode:(NSString *)code completion:(void(^)(BOOL valid))completion;
+@end
 
-// مثال: افترض أن هناك دالة ترجع BOOL هل المستخدم مشترك؟
-// سنقوم بجعلها ترجع YES دائماً.
+@interface SUBAppController : NSObject
+- (BOOL)isSubscribed;
+@end
 
-// ملاحظة: يجب عليك استخدام أداة مثل "class-dump" أو "MachOView" على ملف سناب الأصلي
-// لمعرفة اسم الدالة الدقيقة. سأضع مثالاً عاماً يمكنك تعديله.
-
-// Hook لدالة فرضية مسؤولة عن التحقق من الكود
-// إذا كانت الدالة في Swift، قد تحتاج لاستخدام __attribute__((used)) و اسم الدالة المُنشأ من Swift
-
-// مثال على Hook لدالة في Objective-C
+// Hook للدالة التي تحقق من الاشتراك
 %hook SUBSubscriptionManager
 
 - (BOOL)isPremiumActive {
-    NSLog(@"[CydiaSubstrate] Overriding isPremiumActive");
-    return YES; // دائماً نعم
+    NSLog(@"[SnapFix] isPremiumActive called. Returning YES.");
+    return YES;
 }
 
 - (void)requestSubscriptionCodeWithCompletion:(void(^)(BOOL success, NSString *error))completion {
-    NSLog(@"[CydiaSubstrate] Intercepting subscription request");
-    // استدعاء الكومبليشن بنجاح مباشرة بدلاً من إرسال طلب للشبكة
+    NSLog(@"[SnapFix] requestSubscriptionCode intercepted.");
     if (completion) {
         completion(YES, nil);
     }
 }
 
 - (void)validateCode:(NSString *)code completion:(void(^)(BOOL valid))completion {
-    NSLog(@"[CydiaSubstrate] Validating any code as valid");
+    NSLog(@"[SnapFix] validateCode intercepted for code: %@", code);
     if (completion) {
         completion(YES);
+    }
 }
 
 %end
 
-// إذا كان الفحص يتم عبر كلاس آخر، أضفه هنا
+// Hook للكلاس الرئيسي إذا كان يستخدمه سناب
 %hook SUBAppController
 
 - (BOOL)isSubscribed {
+    NSLog(@"[SnapFix] SUBAppController isSubscribed called. Returning YES.");
     return YES;
 }
 
@@ -52,8 +50,10 @@
 // دالة التهيئة
 __attribute__((constructor))
 void initialize() {
-    NSLog(@"[CydiaSubstrate] Snapshot Version Loaded!");
+    NSLog(@"[SnapFix] CydiaSubstrate Library Loaded Successfully!");
     
-    // يمكنك هنا تحميل مكتبة أخرى إذا لزم الأمر
-    // [[NSBundle mainBundle] loadNibNamed:@"..." ...]
+    // اختياري: تأخير التحميل قليلاً لتجنب الكراش في بداية التطبيق
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC), dispatch_get_main_queue()), ^{
+        NSLog(@"[SnapFix] Delayed initialization complete.");
+    });
 }
